@@ -40,3 +40,8 @@ def test_no_str_format():
 def test_rating_not_compared_to_strings():
     text = ''.join(read_lines())
     assert 'rating == "' not in text and 'rating != "' not in text, 'rating compared to string literal'
+
+
+def test_watchlist_parsing():
+    text = ''.join(read_lines())
+    assert 'input.string' in text and 'str.split' in text, 'watchlist input not parsed with str.split'
