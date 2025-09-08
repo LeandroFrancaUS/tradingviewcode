@@ -41,9 +41,9 @@ plotshape(redDot,   title="Red Dot",   style=shape.circle, color=color.red,   lo
 //// === Analyst fundamentals ===
 // Fundamental values from TradingView's database. If a ticker lacks data
 // these will return `na` and the related conditions simply evaluate false.
-rating     = request.financial(syminfo.tickerid, "rating")
-targetHigh = request.financial(syminfo.tickerid, "target_high_price")
-targetLow  = request.financial(syminfo.tickerid, "target_low_price")
+rating     = request.financial(syminfo.tickerid, "rating",      period="FY")
+targetHigh = request.financial(syminfo.tickerid, "target_high_price", period="FY")
+targetLow  = request.financial(syminfo.tickerid, "target_low_price",  period="FY")
 upsidePct   = (targetHigh - close) / close * 100
 
 downsidePct = (close - targetLow) / close * 100
@@ -119,15 +119,24 @@ if barstate.islast
 buyMsg  = str.format("BUY: RSI {0,number,#.##}, MF {1,number,#.##}, Upside {2,number,#.##}%, Downside {3,number,#.##}%, Rating {4}", rsi, mf, upsidePct, downsidePct, rating)
 sellMsg = str.format("SELL: RSI {0,number,#.##}, MF {1,number,#.##}, Upside {2,number,#.##}%, Downside {3,number,#.##}%, Rating {4}", rsi, mf, upsidePct, downsidePct, rating)
 
-alertcondition(buySignal,  title="Buy Signal",  message=buyMsg)
-alertcondition(sellSignal, title="Sell Signal", message=sellMsg)
+// Alert conditions use static messages; dynamic data is sent via `alert()`
+alertcondition(buySignal,  title="Buy Signal",  message="Buy conditions met")
+alertcondition(sellSignal, title="Sell Signal", message="Sell conditions met")
+if buySignal
+    alert(buyMsg, alert.freq_once_per_bar_close)
+if sellSignal
+    alert(sellMsg, alert.freq_once_per_bar_close)
 
 //// === Watch-out flags ===
 // Gentle warnings when trends weaken but before full sell signals.
 warnRSI     = rsi > 65 and rsi[1] <= 65
 warnAnalyst = upsidePct < 2 * downsidePct and upsidePct > downsidePct
-alertcondition(warnRSI,     title="RSI Watch",     message=str.format("RSI creeping above 65: {0,number,#.##}", rsi))
-alertcondition(warnAnalyst, title="Analyst Watch", message=str.format("Analyst upside shrinking: up {0,number,#.##}% vs down {1,number,#.##}%", upsidePct, downsidePct))
+alertcondition(warnRSI,     title="RSI Watch",     message="RSI creeping above 65")
+alertcondition(warnAnalyst, title="Analyst Watch", message="Analyst upside shrinking")
+if warnRSI
+    alert(str.format("RSI creeping above 65: {0,number,#.##}", rsi), alert.freq_once_per_bar_close)
+if warnAnalyst
+    alert(str.format("Analyst upside shrinking: up {0,number,#.##}% vs down {1,number,#.##}%", upsidePct, downsidePct), alert.freq_once_per_bar_close)
 
 //// === Plot bias moving averages ===
 plot(ema50,  color=color.orange, title="EMA50")
