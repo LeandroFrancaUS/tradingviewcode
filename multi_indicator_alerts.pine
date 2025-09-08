@@ -1,115 +1,137 @@
 //@version=5
+// Multi-Indicator Alerts
+// --------------------------------------------
+// This script combines technical indicators and basic analyst data
+// to produce composite buy and sell signals. Each block is heavily
+// commented so future modifications are straightforward.
+
 indicator("Multi-Indicator Alerts", overlay=true, max_labels_count=500)
 
-// Daily indicators
+//// === Daily momentum indicators ===
+// Relative Strength Index measures price momentum.
 rsiLength = input.int(14, "RSI Length")
 rsi = ta.rsi(close, rsiLength)
 
+// Money Flow Index incorporates volume to track capital movement.
 mfLength = input.int(14, "Money Flow Length")
 mf = ta.mfi(high, low, close, volume, mfLength)
+// `mfUp`/`mfDown` flag a turn in money flow over the last two bars.
 mfUp = ta.rising(mf, 2)
 mfDown = ta.falling(mf, 2)
 
-// WaveTrend-like oscillator for dots
+//// === WaveTrend oscillator ===
+// A simplified WaveTrend model produces "dots" indicating potential
+// exhaustion points. Values beyond +/-53 are treated as oversold/overbought.
 n1 = input.int(10, "WT Channel Length")
 n2 = input.int(21, "WT Average Length")
-ap = hlc3
-esa = ta.ema(ap, n1)
-d = ta.ema(math.abs(ap - esa), n1)
-ci = (ap - esa) / (0.015 * d)
-tci = ta.ema(ci, n2)
-wt1 = tci
-wt2 = ta.sma(wt1, 4)
+ap = hlc3                                 // typical price
+esa = ta.ema(ap, n1)                       // smoothed price
+d = ta.ema(math.abs(ap - esa), n1)         // smoothed deviation
+ci = (ap - esa) / (0.015 * d)             // channel index
+tci = ta.ema(ci, n2)                      // trend channel index
+wt1 = tci                                 // main line
+wt2 = ta.sma(wt1, 4)                      // signal line
 greenDot = ta.crossover(wt1, wt2) and wt1 < -53
-redDot = ta.crossunder(wt1, wt2) and wt1 > 53
+redDot   = ta.crossunder(wt1, wt2) and wt1 > 53
 plotshape(greenDot, title="Green Dot", style=shape.circle, color=color.green, location=location.belowbar, size=size.tiny)
-plotshape(redDot, title="Red Dot", style=shape.circle, color=color.red, location=location.abovebar, size=size.tiny)
+plotshape(redDot,   title="Red Dot",   style=shape.circle, color=color.red,   location=location.abovebar,  size=size.tiny)
 
-// Analyst data (requires fundamental data availability on TradingView)
-rating = request.financial(syminfo.tickerid, "rating")
+//// === Analyst fundamentals ===
+// Fundamental values from TradingView's database. If a ticker lacks data
+// these will return `na` and the related conditions simply evaluate false.
+rating     = request.financial(syminfo.tickerid, "rating")
 targetHigh = request.financial(syminfo.tickerid, "target_high_price")
-targetLow = request.financial(syminfo.tickerid, "target_low_price")
-upsidePct = (targetHigh - close) / close * 100
+targetLow  = request.financial(syminfo.tickerid, "target_low_price")
+upsidePct   = (targetHigh - close) / close * 100
 
 downsidePct = (close - targetLow) / close * 100
 
-ratingBuy = rating == "buy" or rating == "strong_buy"
+ratingBuy          = rating == "buy" or rating == "strong_buy"
 ratingNeutralOrBuy = rating == "buy" or rating == "neutral"
-upsideCondition = upsidePct >= 2 * downsidePct
+upsideCondition    = upsidePct >= 2 * downsidePct   // upside at least twice downside
+downsideCondition  = downsidePct >= upsidePct       // downside greater or equal
 
-downsideCondition = downsidePct >= upsidePct
-
-// Moving averages and context filters
+//// === Daily moving-average context ===
+// 50 EMA represents short-term trend; 200 EMA long-term bias.
 ema50 = ta.ema(close, 50)
 ema200 = ta.ema(close, 200)
-longBias = close > ema200
-momentumFavorable = close > ema50
+longBias = close > ema200                  // price above 200-day = long bias
+momentumFavorable = close > ema50          // price above 50-day = positive momentum
 
-// Weekly filters
+//// === Weekly trend filter ===
+// Higher timeframe confirmation to reduce noise.
 weeklyClose = request.security(syminfo.tickerid, "W", close)
 weeklyEMA20 = request.security(syminfo.tickerid, "W", ta.ema(close, 20))
-weeklyRSI = request.security(syminfo.tickerid, "W", ta.rsi(close, rsiLength))
-weeklyMF = request.security(syminfo.tickerid, "W", ta.mfi(high, low, close, volume, mfLength))
+weeklyRSI  = request.security(syminfo.tickerid, "W", ta.rsi(close, rsiLength))
+weeklyMF   = request.security(syminfo.tickerid, "W", ta.mfi(high, low, close, volume, mfLength))
 weeklyFilter = weeklyClose > weeklyEMA20
 
-// Buy conditions
-c1_buy = rsi < 50
-c2_buy = mfUp
-c3_buy = greenDot
-c4_buy = ratingBuy
-c5_buy = upsideCondition
+//// === Buy evaluation ===
+// Each true condition contributes one point to `buyScore`.
+c1_buy = rsi < 50                         // RSI below midpoint
+c2_buy = mfUp                             // Money Flow turning up
+c3_buy = greenDot                         // WaveTrend oversold bounce
+c4_buy = ratingBuy                        // Analyst rating Buy/Strong Buy
+c5_buy = upsideCondition                  // Forecast upside twice downside
 
 buyScore = (c1_buy?1:0) + (c2_buy?1:0) + (c3_buy?1:0) + (c4_buy?1:0) + (c5_buy?1:0)
+// Require all five conditions plus trend filters and persistence for two bars.
 buyCond = c1_buy and c2_buy and c3_buy and c4_buy and c5_buy and longBias and momentumFavorable and weeklyFilter and weeklyRSI > 50 and weeklyMF > 50
 buySignal = buyCond and buyCond[1]
 
-// Sell conditions
-c1_sell = rsi > 70
-c2_sell = mfDown
-c3_sell = redDot
-c4_sell = ratingNeutralOrBuy
-c5_sell = downsideCondition
+//// === Sell evaluation ===
+// Similar logic as buy side but inverted.
+c1_sell = rsi > 70                        // RSI above overbought threshold
+c2_sell = mfDown                          // Money Flow turning down
+c3_sell = redDot                          // WaveTrend overbought reversal
+c4_sell = ratingNeutralOrBuy              // Analysts neutral or still buy
+c5_sell = downsideCondition               // Downside at least equal to upside
 
 sellScore = (c1_sell?1:0) + (c2_sell?1:0) + (c3_sell?1:0) + (c4_sell?1:0) + (c5_sell?1:0)
+// For exits require weekly filters to fail or long bias lost.
 sellCond = c1_sell and c2_sell and c3_sell and c4_sell and c5_sell and (not longBias or not weeklyFilter or weeklyRSI < 50)
 sellSignal = sellCond and sellCond[1]
 
+// Plot composite scores for quick reference.
 plot(buyScore, "Buy Score", color=color.green)
 plot(sellScore, "Sell Score", color=color.red)
 
-// Visual confidence table
+//// === Confidence table ===
+// Shows which of the five buy/sell checks are currently met.
 var table status = table.new(position.top_right, 5, 2, border_width=1)
 if barstate.islast
-    table.cell(status, 0, 0, "RSI", bgcolor=c1_buy?color.new(color.green, 0):color.new(color.red, 0))
-    table.cell(status, 1, 0, "MF", bgcolor=c2_buy?color.new(color.green, 0):color.new(color.red, 0))
-    table.cell(status, 2, 0, "Dot", bgcolor=c3_buy?color.new(color.green, 0):color.new(color.red, 0))
-    table.cell(status, 3, 0, "Rating", bgcolor=c4_buy?color.new(color.green, 0):color.new(color.red, 0))
-    table.cell(status, 4, 0, "Target", bgcolor=c5_buy?color.new(color.green, 0):color.new(color.red, 0))
-    table.cell(status, 0, 1, "RSI>70", bgcolor=c1_sell?color.new(color.red, 0):color.new(color.green, 0))
-    table.cell(status, 1, 1, "MF down", bgcolor=c2_sell?color.new(color.red, 0):color.new(color.green, 0))
-    table.cell(status, 2, 1, "Red dot", bgcolor=c3_sell?color.new(color.red, 0):color.new(color.green, 0))
-    table.cell(status, 3, 1, "Rating", bgcolor=c4_sell?color.new(color.red, 0):color.new(color.green, 0))
-    table.cell(status, 4, 1, "Target", bgcolor=c5_sell?color.new(color.red, 0):color.new(color.green, 0))
+    table.cell(status, 0, 0, "RSI",    bgcolor=c1_buy?color.new(color.green,0):color.new(color.red,0))
+    table.cell(status, 1, 0, "MF",     bgcolor=c2_buy?color.new(color.green,0):color.new(color.red,0))
+    table.cell(status, 2, 0, "Dot",    bgcolor=c3_buy?color.new(color.green,0):color.new(color.red,0))
+    table.cell(status, 3, 0, "Rating", bgcolor=c4_buy?color.new(color.green,0):color.new(color.red,0))
+    table.cell(status, 4, 0, "Target", bgcolor=c5_buy?color.new(color.green,0):color.new(color.red,0))
+    table.cell(status, 0, 1, "RSI>70", bgcolor=c1_sell?color.new(color.red,0):color.new(color.green,0))
+    table.cell(status, 1, 1, "MF down",bgcolor=c2_sell?color.new(color.red,0):color.new(color.green,0))
+    table.cell(status, 2, 1, "Red dot", bgcolor=c3_sell?color.new(color.red,0):color.new(color.green,0))
+    table.cell(status, 3, 1, "Rating",  bgcolor=c4_sell?color.new(color.red,0):color.new(color.green,0))
+    table.cell(status, 4, 1, "Target",  bgcolor=c5_sell?color.new(color.red,0):color.new(color.green,0))
 
-// Rich alert messages
-buyMsg = str.format("BUY: RSI {0,number,#.##}, MF {1,number,#.##}, Upside {2,number,#.##}%, Downside {3,number,#.##}%, Rating {4}", rsi, mf, upsidePct, downsidePct, rating)
+//// === Alert text ===
+// Include key metrics in alerts so the chart doesn't need to be opened.
+buyMsg  = str.format("BUY: RSI {0,number,#.##}, MF {1,number,#.##}, Upside {2,number,#.##}%, Downside {3,number,#.##}%, Rating {4}", rsi, mf, upsidePct, downsidePct, rating)
 sellMsg = str.format("SELL: RSI {0,number,#.##}, MF {1,number,#.##}, Upside {2,number,#.##}%, Downside {3,number,#.##}%, Rating {4}", rsi, mf, upsidePct, downsidePct, rating)
 
-alertcondition(buySignal, title="Buy Signal", message=buyMsg)
+alertcondition(buySignal,  title="Buy Signal",  message=buyMsg)
 alertcondition(sellSignal, title="Sell Signal", message=sellMsg)
 
-// Watch-out flags
-warnRSI = rsi > 65 and rsi[1] <= 65
+//// === Watch-out flags ===
+// Gentle warnings when trends weaken but before full sell signals.
+warnRSI     = rsi > 65 and rsi[1] <= 65
 warnAnalyst = upsidePct < 2 * downsidePct and upsidePct > downsidePct
-alertcondition(warnRSI, title="RSI Watch", message=str.format("RSI creeping above 65: {0,number,#.##}", rsi))
+alertcondition(warnRSI,     title="RSI Watch",     message=str.format("RSI creeping above 65: {0,number,#.##}", rsi))
 alertcondition(warnAnalyst, title="Analyst Watch", message=str.format("Analyst upside shrinking: up {0,number,#.##}% vs down {1,number,#.##}%", upsidePct, downsidePct))
 
-// Plot bias moving averages
-plot(ema50, color=color.orange, title="EMA50")
-plot(ema200, color=color.blue, title="EMA200")
+//// === Plot bias moving averages ===
+plot(ema50,  color=color.orange, title="EMA50")
+plot(ema200, color=color.blue,   title="EMA200")
 
-// Cross alerts for context
+//// === Cross alerts for context ===
 goldenCross = ta.crossover(ema50, ema200)
-deathCross = ta.crossunder(ema50, ema200)
+deathCross  = ta.crossunder(ema50, ema200)
 alertcondition(goldenCross, title="Golden Cross", message="50 EMA crossed above 200 EMA")
-alertcondition(deathCross, title="Death Cross", message="50 EMA crossed below 200 EMA")
+alertcondition(deathCross,  title="Death Cross",  message="50 EMA crossed below 200 EMA")
