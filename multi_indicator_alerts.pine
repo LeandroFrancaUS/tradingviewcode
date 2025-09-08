@@ -1,0 +1,158 @@
+//@version=6
+// Multi-Indicator Watchlist Alerts
+// --------------------------------------------
+// Monitors a user supplied list of symbols and evaluates a
+// composite set of technical and fundamental checks on each.
+// The script fires runtime alerts describing which symbol
+// triggered and why, while a small table shows current
+// buy/sell scores for every watchlist entry.
+
+indicator("Multi-Indicator Watchlist Alerts", overlay=true, max_labels_count=500)
+
+//// === User watchlist ===
+// Comma separated list of tickers to monitor. Spaces are stripped
+// so users can enter "AAPL, MSFT, GOOGL" without issue.
+watchlistInput = input.string("AAPL,MSFT,GOOGL", "Symbols", tooltip="Comma separated list")
+cleanList = str.replace_all(watchlistInput, " ", "")
+var string[] symbols = str.split(cleanList, ",")
+
+// Helper arrays to store the latest buy/sell scores for table display.
+var int[] buyScores = array.new_int(array.size(symbols), 0)
+var int[] sellScores = array.new_int(array.size(symbols), 0)
+
+//// === Shared indicator parameters ===
+// These lengths apply to every symbol in the watchlist.
+rsiLength = input.int(14, "RSI Length")
+mfLength  = input.int(14, "Money Flow Length")
+wtLen1    = input.int(10, "WT Channel Length")
+wtLen2    = input.int(21, "WT Average Length")
+
+// WaveTrend calculation packaged as a reusable function so it can be
+// executed inside request.security for each ticker.
+wtCalc() =>
+    ap  = hlc3
+    esa = ta.ema(ap, wtLen1)
+    d   = ta.ema(math.abs(ap - esa), wtLen1)
+    ci  = (ap - esa) / (0.015 * d)
+    tci = ta.ema(ci, wtLen2)
+    wt1 = tci
+    wt2 = ta.sma(wt1, 4)
+    [wt1, wt2]
+
+
+// === Iterate through all symbols ===
+anyBuy  = false
+anySell = false
+
+// Track previous bar's buy/sell conditions for each symbol so we can
+// require two consecutive aligned sessions without relying on
+// history references inside the loop.
+var bool[] prevBuyCond  = array.new_bool(array.size(symbols), false)
+var bool[] prevSellCond = array.new_bool(array.size(symbols), false)
+
+for i = 0 to array.size(symbols) - 1
+    sym = array.get(symbols, i)
+
+    // === Daily data requests ===
+    closeD = request.security(sym, "D", close)
+    rsi    = request.security(sym, "D", ta.rsi(close, rsiLength))
+    mf     = request.security(sym, "D", ta.mfi(hlc3, mfLength))
+    mfUp   = ta.rising(mf, 2)
+    mfDown = ta.falling(mf, 2)
+    [wt1, wt2] = request.security(sym, "D", wtCalc())
+    greenDot = ta.crossover(wt1, wt2) and wt1 < -53
+    redDot   = ta.crossunder(wt1, wt2) and wt1 > 53
+
+    // === Analyst fundamentals ===
+    rating     = request.financial(sym, "rating",            period="FY")
+    targetHigh = request.financial(sym, "target_high_price", period="FY")
+    targetLow  = request.financial(sym, "target_low_price",  period="FY")
+    upsidePct   = (targetHigh - closeD) / closeD * 100
+    downsidePct = (closeD - targetLow) / closeD * 100
+    ratingBuy          = rating >= 4
+    ratingNeutralOrBuy = rating >= 3
+    upsideCondition    = upsidePct >= 2 * downsidePct
+    downsideCondition  = downsidePct >= upsidePct
+
+    // === Daily moving-average context ===
+    ema50  = request.security(sym, "D", ta.ema(close, 50))
+    ema200 = request.security(sym, "D", ta.ema(close, 200))
+    longBias = closeD > ema200
+    momentumFavorable = closeD > ema50
+
+    // === Weekly trend filter ===
+    weeklyClose = request.security(sym, "W", close)
+    weeklyEMA20 = request.security(sym, "W", ta.ema(close, 20))
+    weeklyRSI   = request.security(sym, "W", ta.rsi(close, rsiLength))
+    weeklyMF    = request.security(sym, "W", ta.mfi(hlc3, mfLength))
+    weeklyFilter = weeklyClose > weeklyEMA20
+
+    // === Buy evaluation ===
+    c1_buy = rsi < 50
+    c2_buy = mfUp
+    c3_buy = greenDot
+    c4_buy = ratingBuy
+    c5_buy = upsideCondition
+    buyScore = (c1_buy?1:0) + (c2_buy?1:0) + (c3_buy?1:0) + (c4_buy?1:0) + (c5_buy?1:0)
+    buyCond = c1_buy and c2_buy and c3_buy and c4_buy and c5_buy and longBias and momentumFavorable and weeklyFilter and weeklyRSI > 50 and weeklyMF > 50
+
+    // === Sell evaluation ===
+    c1_sell = rsi > 70
+    c2_sell = mfDown
+    c3_sell = redDot
+    c4_sell = ratingNeutralOrBuy
+    c5_sell = downsideCondition
+    sellScore = (c1_sell?1:0) + (c2_sell?1:0) + (c3_sell?1:0) + (c4_sell?1:0) + (c5_sell?1:0)
+    sellCond = c1_sell and c2_sell and c3_sell and c4_sell and c5_sell and (not longBias or not weeklyFilter or weeklyRSI < 50)
+
+    // === Watch-out flags ===
+    wRSI = rsi > 65 and rsi[1] <= 65
+    wAn  = upsidePct < 2 * downsidePct and upsidePct > downsidePct
+
+    // === Alert text assembly ===
+    bMsg = sym + " BUY: RSI " + str.tostring(rsi, "#.##") +
+           ", MF " + str.tostring(mf, "#.##") +
+           ", Upside " + str.tostring(upsidePct, "#.##") + "%" +
+           ", Downside " + str.tostring(downsidePct, "#.##") + "%" +
+           ", Rating " + str.tostring(rating, "#.##")
+    sMsg = sym + " SELL: RSI " + str.tostring(rsi, "#.##") +
+           ", MF " + str.tostring(mf, "#.##") +
+           ", Upside " + str.tostring(upsidePct, "#.##") + "%" +
+           ", Downside " + str.tostring(downsidePct, "#.##") + "%" +
+           ", Rating " + str.tostring(rating, "#.##")
+    wRSIMsg = sym + " RSI creeping above 65: " + str.tostring(rsi, "#.##")
+    wAnMsg  = sym + " Analyst upside shrinking: up " + str.tostring(upsidePct, "#.##") + "% vs down " + str.tostring(downsidePct, "#.##") + "%"
+
+    // Determine two-bar confirmation using stored previous conditions.
+    bPrev = array.get(prevBuyCond, i)
+    sPrev = array.get(prevSellCond, i)
+    bSig  = buyCond and bPrev
+    sSig  = sellCond and sPrev
+    array.set(prevBuyCond,  i, buyCond)
+    array.set(prevSellCond, i, sellCond)
+
+    array.set(buyScores, i, buyScore)
+    array.set(sellScores, i, sellScore)
+    if bSig
+        anyBuy := true
+        alert(bMsg, alert.freq_once_per_bar_close)
+    if sSig
+        anySell := true
+        alert(sMsg, alert.freq_once_per_bar_close)
+    if wRSI
+        alert(wRSIMsg, alert.freq_once_per_bar_close)
+    if wAn
+        alert(wAnMsg, alert.freq_once_per_bar_close)
+
+// Generic alert conditions so the script can be armed once. Runtime
+// alerts deliver the detailed symbol specific messages above.
+alertcondition(anyBuy,  title="Watchlist Buy",  message="Buy conditions met on one of the symbols")
+alertcondition(anySell, title="Watchlist Sell", message="Sell conditions met on one of the symbols")
+
+//// === Status table ===
+var table status = table.new(position.top_right, array.size(symbols), 2, border_width=1)
+if barstate.islast
+    for i = 0 to array.size(symbols) - 1
+        sym = array.get(symbols, i)
+        table.cell(status, i, 0, sym + "\nB:" + str.tostring(array.get(buyScores, i)), bgcolor=color.new(color.green, 0))
+        table.cell(status, i, 1, "S:" + str.tostring(array.get(sellScores, i)), bgcolor=color.new(color.red,   0))
