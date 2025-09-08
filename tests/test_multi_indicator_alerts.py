@@ -45,3 +45,8 @@ def test_rating_not_compared_to_strings():
 def test_watchlist_parsing():
     text = ''.join(read_lines())
     assert 'input.string' in text and 'str.split' in text, 'watchlist input not parsed with str.split'
+
+
+def test_version_is_6():
+    lines = read_lines()
+    assert lines[0].strip() == '//@version=6', 'script should declare Pine Script v6'
