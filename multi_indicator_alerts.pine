@@ -1,4 +1,4 @@
-//@version=6
+//@version=5
 // Multi-Indicator Watchlist Alerts
 // --------------------------------------------
 // Monitors a user supplied list of symbols and evaluates a
