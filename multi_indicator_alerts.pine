@@ -39,8 +39,20 @@ wtCalc() =>
     wt2 = ta.sma(wt1, 4)
     [wt1, wt2]
 
-// Encapsulate the complete evaluation so it can be looped over symbols.
-process(sym) =>
+
+// === Iterate through all symbols ===
+anyBuy  = false
+anySell = false
+
+// Track previous bar's buy/sell conditions for each symbol so we can
+// require two consecutive aligned sessions without relying on
+// history references inside the loop.
+var bool[] prevBuyCond  = array.new_bool(array.size(symbols), false)
+var bool[] prevSellCond = array.new_bool(array.size(symbols), false)
+
+for i = 0 to array.size(symbols) - 1
+    sym = array.get(symbols, i)
+
     // === Daily data requests ===
     closeD = request.security(sym, "D", close)
     rsi    = request.security(sym, "D", ta.rsi(close, rsiLength))
@@ -83,7 +95,6 @@ process(sym) =>
     c5_buy = upsideCondition
     buyScore = (c1_buy?1:0) + (c2_buy?1:0) + (c3_buy?1:0) + (c4_buy?1:0) + (c5_buy?1:0)
     buyCond = c1_buy and c2_buy and c3_buy and c4_buy and c5_buy and longBias and momentumFavorable and weeklyFilter and weeklyRSI > 50 and weeklyMF > 50
-    buySignal = buyCond and buyCond[1]
 
     // === Sell evaluation ===
     c1_sell = rsi > 70
@@ -93,36 +104,35 @@ process(sym) =>
     c5_sell = downsideCondition
     sellScore = (c1_sell?1:0) + (c2_sell?1:0) + (c3_sell?1:0) + (c4_sell?1:0) + (c5_sell?1:0)
     sellCond = c1_sell and c2_sell and c3_sell and c4_sell and c5_sell and (not longBias or not weeklyFilter or weeklyRSI < 50)
-    sellSignal = sellCond and sellCond[1]
 
     // === Watch-out flags ===
-    warnRSI     = rsi > 65 and rsi[1] <= 65
-    warnAnalyst = upsidePct < 2 * downsidePct and upsidePct > downsidePct
+    wRSI = rsi > 65 and rsi[1] <= 65
+    wAn  = upsidePct < 2 * downsidePct and upsidePct > downsidePct
 
     // === Alert text assembly ===
-    buyMsg = sym + " BUY: RSI " + str.tostring(rsi, "#.##") +
-             ", MF " + str.tostring(mf, "#.##") +
-             ", Upside " + str.tostring(upsidePct, "#.##") + "%" +
-             ", Downside " + str.tostring(downsidePct, "#.##") + "%" +
-             ", Rating " + str.tostring(rating, "#.##")
-    sellMsg = sym + " SELL: RSI " + str.tostring(rsi, "#.##") +
-              ", MF " + str.tostring(mf, "#.##") +
-              ", Upside " + str.tostring(upsidePct, "#.##") + "%" +
-              ", Downside " + str.tostring(downsidePct, "#.##") + "%" +
-              ", Rating " + str.tostring(rating, "#.##")
-    warnRSIMsg = sym + " RSI creeping above 65: " + str.tostring(rsi, "#.##")
-    warnAnalystMsg = sym + " Analyst upside shrinking: up " + str.tostring(upsidePct, "#.##") + "% vs down " + str.tostring(downsidePct, "#.##") + "%"
+    bMsg = sym + " BUY: RSI " + str.tostring(rsi, "#.##") +
+           ", MF " + str.tostring(mf, "#.##") +
+           ", Upside " + str.tostring(upsidePct, "#.##") + "%" +
+           ", Downside " + str.tostring(downsidePct, "#.##") + "%" +
+           ", Rating " + str.tostring(rating, "#.##")
+    sMsg = sym + " SELL: RSI " + str.tostring(rsi, "#.##") +
+           ", MF " + str.tostring(mf, "#.##") +
+           ", Upside " + str.tostring(upsidePct, "#.##") + "%" +
+           ", Downside " + str.tostring(downsidePct, "#.##") + "%" +
+           ", Rating " + str.tostring(rating, "#.##")
+    wRSIMsg = sym + " RSI creeping above 65: " + str.tostring(rsi, "#.##")
+    wAnMsg  = sym + " Analyst upside shrinking: up " + str.tostring(upsidePct, "#.##") + "% vs down " + str.tostring(downsidePct, "#.##") + "%"
 
-    [buySignal, sellSignal, warnRSI, warnAnalyst, buyScore, sellScore, buyMsg, sellMsg, warnRSIMsg, warnAnalystMsg]
+    // Determine two-bar confirmation using stored previous conditions.
+    bPrev = array.get(prevBuyCond, i)
+    sPrev = array.get(prevSellCond, i)
+    bSig  = buyCond and bPrev
+    sSig  = sellCond and sPrev
+    array.set(prevBuyCond,  i, buyCond)
+    array.set(prevSellCond, i, sellCond)
 
-// === Iterate through all symbols ===
-anyBuy  = false
-anySell = false
-for i = 0 to array.size(symbols) - 1
-    sym = array.get(symbols, i)
-    [bSig, sSig, wRSI, wAn, bScore, sScore, bMsg, sMsg, wRSIMsg, wAnMsg] = process(sym)
-    array.set(buyScores, i, bScore)
-    array.set(sellScores, i, sScore)
+    array.set(buyScores, i, buyScore)
+    array.set(sellScores, i, sellScore)
     if bSig
         anyBuy := true
         alert(bMsg, alert.freq_once_per_bar_close)
