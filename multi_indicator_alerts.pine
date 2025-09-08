@@ -56,9 +56,10 @@ for i = 0 to array.size(symbols) - 1
     // === Daily data requests ===
     closeD = request.security(sym, "D", close)
     rsi    = request.security(sym, "D", ta.rsi(close, rsiLength))
-    mf     = request.security(sym, "D", ta.mfi(hlc3, mfLength))
-    mfUp   = ta.rising(mf, 2)
-    mfDown = ta.falling(mf, 2)
+    [mf, mfUp, mfDown] = request.security(sym, "D", () =>
+        m = ta.mfi(hlc3, mfLength)
+        [m, ta.rising(m, 2), ta.falling(m, 2)]
+    )
     [wt1, wt2] = request.security(sym, "D", wtCalc())
     greenDot = ta.crossover(wt1, wt2) and wt1 < -53
     redDot   = ta.crossunder(wt1, wt2) and wt1 > 53
