@@ -54,12 +54,12 @@ for i = 0 to array.size(symbols) - 1
     sym = array.get(symbols, i)
 
     // === Daily data requests ===
-    closeD = request.security(sym, "D", close)
-    rsi    = request.security(sym, "D", ta.rsi(close, rsiLength))
-    mf     = request.security(sym, "D", ta.mfi(hlc3, mfLength))
+    closeD = request.security(sym, "D", () => close)
+    rsi    = request.security(sym, "D", () => ta.rsi(close, rsiLength))
+    mf     = request.security(sym, "D", () => ta.mfi(hlc3, mfLength))
     mfUp   = ta.rising(mf, 2)
     mfDown = ta.falling(mf, 2)
-    [wt1, wt2] = request.security(sym, "D", wtCalc())
+    [wt1, wt2] = request.security(sym, "D", () => wtCalc())
     greenDot = ta.crossover(wt1, wt2) and wt1 < -53
     redDot   = ta.crossunder(wt1, wt2) and wt1 > 53
 
@@ -75,16 +75,16 @@ for i = 0 to array.size(symbols) - 1
     downsideCondition  = downsidePct >= upsidePct
 
     // === Daily moving-average context ===
-    ema50  = request.security(sym, "D", ta.ema(close, 50))
-    ema200 = request.security(sym, "D", ta.ema(close, 200))
+    ema50  = request.security(sym, "D", () => ta.ema(close, 50))
+    ema200 = request.security(sym, "D", () => ta.ema(close, 200))
     longBias = closeD > ema200
     momentumFavorable = closeD > ema50
 
     // === Weekly trend filter ===
-    weeklyClose = request.security(sym, "W", close)
-    weeklyEMA20 = request.security(sym, "W", ta.ema(close, 20))
-    weeklyRSI   = request.security(sym, "W", ta.rsi(close, rsiLength))
-    weeklyMF    = request.security(sym, "W", ta.mfi(hlc3, mfLength))
+    weeklyClose = request.security(sym, "W", () => close)
+    weeklyEMA20 = request.security(sym, "W", () => ta.ema(close, 20))
+    weeklyRSI   = request.security(sym, "W", () => ta.rsi(close, rsiLength))
+    weeklyMF    = request.security(sym, "W", () => ta.mfi(hlc3, mfLength))
     weeklyFilter = weeklyClose > weeklyEMA20
 
     // === Buy evaluation ===
