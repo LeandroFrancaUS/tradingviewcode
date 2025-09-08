@@ -48,10 +48,13 @@ upsidePct   = (targetHigh - close) / close * 100
 
 downsidePct = (close - targetLow) / close * 100
 
-ratingBuy          = rating == "buy" or rating == "strong_buy"
-ratingNeutralOrBuy = rating == "buy" or rating == "neutral"
-upsideCondition    = upsidePct >= 2 * downsidePct   // upside at least twice downside
-downsideCondition  = downsidePct >= upsidePct       // downside greater or equal
+// `rating` comes back as a numeric value (1 strong sell -> 5 strong buy). Use
+// thresholds instead of string comparisons so the script compiles even when
+// the broker only supplies numeric ratings.
+ratingBuy          = rating >= 4                     // buy or strong buy
+ratingNeutralOrBuy = rating >= 3                     // neutral or better
+upsideCondition    = upsidePct >= 2 * downsidePct    // upside at least twice downside
+downsideCondition  = downsidePct >= upsidePct        // downside greater or equal
 
 //// === Daily moving-average context ===
 // 50 EMA represents short-term trend; 200 EMA long-term bias.
@@ -116,8 +119,16 @@ if barstate.islast
 
 //// === Alert text ===
 // Include key metrics in alerts so the chart doesn't need to be opened.
-buyMsg  = str.format("BUY: RSI {0,number,#.##}, MF {1,number,#.##}, Upside {2,number,#.##}%, Downside {3,number,#.##}%, Rating {4}", rsi, mf, upsidePct, downsidePct, rating)
-sellMsg = str.format("SELL: RSI {0,number,#.##}, MF {1,number,#.##}, Upside {2,number,#.##}%, Downside {3,number,#.##}%, Rating {4}", rsi, mf, upsidePct, downsidePct, rating)
+buyMsg = "BUY: RSI " + str.tostring(rsi, "#.##") +
+         ", MF " + str.tostring(mf, "#.##") +
+         ", Upside " + str.tostring(upsidePct, "#.##") + "%" +
+         ", Downside " + str.tostring(downsidePct, "#.##") + "%" +
+         ", Rating " + str.tostring(rating, "#.##")
+sellMsg = "SELL: RSI " + str.tostring(rsi, "#.##") +
+          ", MF " + str.tostring(mf, "#.##") +
+          ", Upside " + str.tostring(upsidePct, "#.##") + "%" +
+          ", Downside " + str.tostring(downsidePct, "#.##") + "%" +
+          ", Rating " + str.tostring(rating, "#.##")
 
 // Alert conditions use static messages; dynamic data is sent via `alert()`
 alertcondition(buySignal,  title="Buy Signal",  message="Buy conditions met")
@@ -134,9 +145,9 @@ warnAnalyst = upsidePct < 2 * downsidePct and upsidePct > downsidePct
 alertcondition(warnRSI,     title="RSI Watch",     message="RSI creeping above 65")
 alertcondition(warnAnalyst, title="Analyst Watch", message="Analyst upside shrinking")
 if warnRSI
-    alert(str.format("RSI creeping above 65: {0,number,#.##}", rsi), alert.freq_once_per_bar_close)
+    alert("RSI creeping above 65: " + str.tostring(rsi, "#.##"), alert.freq_once_per_bar_close)
 if warnAnalyst
-    alert(str.format("Analyst upside shrinking: up {0,number,#.##}% vs down {1,number,#.##}%", upsidePct, downsidePct), alert.freq_once_per_bar_close)
+    alert("Analyst upside shrinking: up " + str.tostring(upsidePct, "#.##") + "% vs down " + str.tostring(downsidePct, "#.##") + "%", alert.freq_once_per_bar_close)
 
 //// === Plot bias moving averages ===
 plot(ema50,  color=color.orange, title="EMA50")

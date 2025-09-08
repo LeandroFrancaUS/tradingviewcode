@@ -30,3 +30,13 @@ def test_request_financial_period_param():
 def test_dynamic_alerts_present():
     text = ''.join(read_lines())
     assert 'alert(' in text, 'expected runtime alert() calls for dynamic messages'
+
+
+def test_no_str_format():
+    text = ''.join(read_lines())
+    assert 'str.format' not in text, 'str.format should not be used with series values'
+
+
+def test_rating_not_compared_to_strings():
+    text = ''.join(read_lines())
+    assert 'rating == "' not in text and 'rating != "' not in text, 'rating compared to string literal'
