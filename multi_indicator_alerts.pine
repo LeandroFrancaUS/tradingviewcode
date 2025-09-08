@@ -54,10 +54,13 @@ for i = 0 to array.size(symbols) - 1
 
     // === Daily data requests ===
     closeD = request.security(sym, "D", close)
-    [rsi, rsiPrev] = request.security(sym, "D", () =>
-        r = ta.rsi(close, rsiLength)
-        [r, r[1]]
-    )
+    // Daily RSI value and its prior bar. Keeping the previous value outside of
+    // request.security avoids series-in-series history lookups that can throw
+    // warnings in Pine.
+    rsi     = request.security(sym, "D", ta.rsi(close, rsiLength))
+    rsiPrev = rsi[1]
+    // Daily Money Flow Index and whether it's curving up or down. We compute
+    // the MFI once, then derive rising/falling booleans for confidence scoring.
     [mf, mfUp, mfDown] = request.security(sym, "D", () =>
         m = ta.mfi(hlc3, mfLength)
         [m, ta.rising(m, 2), ta.falling(m, 2)]
